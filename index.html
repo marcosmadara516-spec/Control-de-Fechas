@@ -170,6 +170,10 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 .cat-row.arrastrando{background:var(--accent-soft);position:relative;z-index:1;box-shadow:0 4px 14px rgb(0 0 0 / .15)}
 .seg-w{display:flex;flex-wrap:wrap;gap:8px}
 .seg-w .chip{padding:9px 16px;font-size:.92rem}
+.it{cursor:pointer}
+.it:active{background:var(--surface-2)}
+.btn.borrar{color:var(--red);border-color:var(--red)}
+.btn.borrar.confirmar{background:var(--red);color:#fff}
 @media (prefers-reduced-motion:no-preference){.fab{transition:transform .12s}.fab:active{transform:scale(.94)}.cajon{transition:transform .22s ease,visibility .22s}}
 </style>
 </head>
@@ -196,7 +200,7 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
     <button class="chip" data-f="atendidos" aria-pressed="false">Atendidos</button>
   </div>
   <div id="lista" class="lista"><div class="cargando">Cargando…</div></div>
-  <p class="muted" style="text-align:center;font-size:.8rem;margin:20px 0 0">Control de Fechas · Versión 3</p>
+  <p class="muted" style="text-align:center;font-size:.8rem;margin:20px 0 0">Control de Fechas · Versión 5</p>
 </div>
 
 <!-- Menú lateral -->
@@ -301,6 +305,16 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 <div class="leyendo" id="leyendo" hidden><div>Leyendo código…</div></div>
 
 <!-- Registrar producto -->
+<!-- Editar producto -->
+<section class="pant" id="p-edit" hidden aria-labelledby="p-edit-t">
+  <div class="pant-h">
+    <button class="ico" id="ed-x" type="button" aria-label="Volver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
+    <b id="p-edit-t">Editar producto</b>
+    <button class="btn" id="ed-ok" type="button" style="border:0;font-weight:700;letter-spacing:.04em">GUARDAR</button>
+  </div>
+  <div class="pant-b"><div class="in gut" id="ed-in"></div></div>
+</section>
+
 <section class="pant" id="p-reg" hidden aria-labelledby="p-reg-t">
   <div class="pant-h"><b id="p-reg-t">Registrar producto</b><button class="btn" id="reg-x" type="button">Cancelar</button></div>
   <div class="pant-b"><div class="in gut" id="reg-in"></div></div>
@@ -349,7 +363,7 @@ const CLAVE   = "CCN";
 /* =============================================================================================================== */
 async function api(fn,...a){
   if(!/^https:\/\/script\.google\.com\/.+\/exec$/.test(API_URL))throw new Error("Falta poner la URL de Apps Script en index.html (API_URL).");
-  const cuerpo={key:CLAVE,uid:S.ctx.uid,...({getDataEscaner:{action:"data"},guardarEscaneo:{action:"guardar",datos:a[0]},cambiarEstado:{action:"estado",id:a[0],estado:a[1]},guardarCategorias:{action:"cats",lista:a[0]}}[fn])};
+  const cuerpo={key:CLAVE,uid:S.ctx.uid,...({getDataEscaner:{action:"data"},guardarEscaneo:{action:"guardar",datos:a[0]},cambiarEstado:{action:"estado",id:a[0],estado:a[1]},guardarCategorias:{action:"cats",lista:a[0]},editarRegistro:{action:"editar",datos:a[0]},eliminarRegistro:{action:"borrar",id:a[0]}}[fn])};
   let r;
   try{r=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(cuerpo),redirect:"follow"})}
   catch(e){throw new Error("Sin conexión. Revisa tu internet.")}
@@ -381,8 +395,15 @@ function nuevoUid(){try{if(crypto.randomUUID)return crypto.randomUUID()}catch(e)
 if(!S.ctx.uid){S.ctx.uid=nuevoUid();ls.set("cf-ctx",JSON.stringify(S.ctx))}
 const clave=(c,p,x)=>[c,p,x].map(s=>String(s||"").trim().toUpperCase()).join("|");
 function porCodigo(cod){return S.codigos.find(c=>c.codigo===cod)}
-function fotoDe(r){const k=clave(r.categoria,r.producto,r.presentacion);const c=S.codigos.find(x=>clave(x.categoria,x.producto,x.presentacion)===k&&x.foto);return c?c.foto:""}
-function codigoDe(r){const k=clave(r.categoria,r.producto,r.presentacion);const c=S.codigos.find(x=>clave(x.categoria,x.producto,x.presentacion)===k);return c?c.codigo:""}
+// Busca el código/foto del producto: primero igual categoría, luego el mismo producto en cualquier categoría
+// (cada persona puede usar sus propios nombres de categoría), y por último por el nombre completo.
+function codigoPara(r,conFoto){const ok=x=>!conFoto||x.foto;const p=clave("",r.producto,r.presentacion),nom=norm(nombreDe(r.producto,r.presentacion)).replace(/\s+/g,"");
+  return S.codigos.find(x=>ok(x)&&clave(x.categoria,x.producto,x.presentacion)===clave(r.categoria,r.producto,r.presentacion))
+    ||S.codigos.find(x=>ok(x)&&clave("",x.producto,x.presentacion)===p)
+    ||S.codigos.find(x=>ok(x)&&norm(nombreDe(x.producto,x.presentacion)).replace(/\s+/g,"")===nom)}
+// Si el registro guardó su código de barras, se usa ese (aunque después se le cambie el nombre)
+function fotoDe(r){if(r.codigo){const k=porCodigo(r.codigo);if(k&&k.foto)return k.foto}const c=codigoPara(r,true);return c?c.foto:""}
+function codigoDe(r){if(r.codigo)return r.codigo;const c=codigoPara(r,false);return c?c.codigo:""}
 // Nombre a mostrar: producto + presentación (sin repetir el producto si la presentación ya lo trae)
 function nombreDe(prod,pres){prod=String(prod||"").trim();pres=String(pres||"").trim();if(!pres)return prod;return norm(pres).includes(norm(prod))?pres:prod+" "+pres}
 function presDe(cat,prod){return (S.cat.presentaciones?.[cat]?.[prod])||[]}
@@ -437,7 +458,7 @@ function renderLista(){
 $("chips").onclick=e=>{const c=e.target.closest(".chip");if(!c)return;S.filtro=c.dataset.f;renderLista()};
 $("btn-buscar").onclick=()=>{const b=$("caja-buscar");b.hidden=!b.hidden;if(!b.hidden)$("q").focus();else{$("q").value="";S.q="";renderLista()}};
 $("q").oninput=e=>{S.q=e.target.value;renderLista()};
-$("lista").addEventListener("click",async e=>{const b=e.target.closest("[data-act=estado]");if(!b)return;
+$("lista").addEventListener("click",async e=>{const b=e.target.closest("[data-act=estado]");if(!b){const it=e.target.closest(".it");if(it)abrirEditar(it.dataset.id);return}
   const id=b.closest(".it").dataset.id;const r=S.regs.find(x=>x.id===id);if(!r)return;
   if(r.estado!=="atendido"&&diasRet(r)>0){toast("Se puede marcar desde el "+fCorta(fechaRetiro(r)));return}
   const est=r.estado==="atendido"?"pendiente":"atendido";b.disabled=true;b.textContent="…";
@@ -468,6 +489,68 @@ $("caj-edit").onclick=()=>{cerrarCajon();pintarCats();abrir("p-cats")};
 const cambiarNombre=()=>{cerrarCajon();pintarCtx();abrir("p-ctx");$("ctx-nombre").focus()};
 $("caj-nombre").onclick=cambiarNombre;$("caj-ajustes").onclick=cambiarNombre;
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("cajon").classList.contains("abierto"))cerrarCajon()});
+
+/* ---------- editar producto ---------- */
+function abrirEditar(id){const r=S.regs.find(x=>x.id===id);if(!r)return;
+  S.ed={id:r.id,codigo:codigoDe(r),categoria:r.categoria,producto:r.producto,presentacion:r.presentacion,cantidad:String(r.cantidad),fecha:r.fecha,lote:r.lote||"",
+        foto:fotoDe(r),fotoNueva:"",creado:r.creado,responsable:r.responsable,estado:r.estado,borrar:false,guardando:false};
+  pintarEditar();abrir("p-edit");$("p-edit").querySelector(".pant-b").scrollTop=0}
+function hintEd(){const E=S.ed;if(!E||!E.fecha||!E.producto)return"";const fr=fechaRetiro(E),n=dias(fr);
+  return `<span class="hint" style="color:var(--${nivel(n)==="vencido"?"red":nivel(n)==="critico"?"amber":nivel(n)==="pronto"?"yellow":"green"})">Se retira el ${fCorta(fr)} (${txtRet(n).toLowerCase()})</span>`}
+function pintarEditar(){const E=S.ed;const foto=E.fotoNueva||E.foto;
+  const cats=[...S.cats.map(c=>c.nombre)];if(E.categoria&&!catDe(E.categoria))cats.push(E.categoria);
+  const creado=E.creado?new Date(E.creado):null;
+  $("ed-in").innerHTML=`
+    <div class="tarjeta">
+      <div class="foto">${foto?`<img src="${esc(foto)}" alt="">`:esc((E.producto||"?").slice(0,1))}${E.codigo?`<button type="button" id="ed-foto" aria-label="Cambiar la foto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>`:""}</div>
+      <div>
+        <div class="mini">${E.codigo?"Código "+esc(E.codigo):"Sin código de barras"}</div>
+        <div class="nm">${esc(nombreDe(E.producto,E.presentacion)||"Producto")}</div>
+        <div class="mini">${creado?"Registrado el "+creado.getDate()+" "+MESES[creado.getMonth()]+" "+creado.getFullYear():""}${E.estado==="atendido"?" · Atendido":""}</div>
+        ${E.fotoNueva?'<div class="mini" style="color:var(--green);font-weight:600">Foto nueva: se guarda al tocar GUARDAR</div>':""}
+      </div>
+    </div>
+    <div class="f" style="margin-bottom:-6px">Categoría</div>
+    <div class="seg-w" role="group" aria-label="Categoría">${cats.map(n=>`<button type="button" class="chip" data-edcat="${esc(n)}" aria-pressed="${norm(E.categoria)===norm(n)}">${esc(n)}</button>`).join("")}<button type="button" class="chip" data-ednuevacat="1">＋ Nueva</button></div>
+    <label class="f">Producto <span class="req">*</span><input id="ed-prod" list="dl-ed-prod" value="${esc(E.producto)}" autocapitalize="characters" autocomplete="off"></label>
+    <datalist id="dl-ed-prod">${sugProd(E.categoria).map(p=>`<option value="${esc(p)}">`).join("")}</datalist>
+    <label class="f">Presentación / gramaje<input id="ed-pres" list="dl-ed-pres" value="${esc(E.presentacion)}" autocapitalize="characters" autocomplete="off" placeholder="Opcional"></label>
+    <datalist id="dl-ed-pres">${presOpc(E.categoria,E.producto)}</datalist>
+    <div class="row2">
+      <label class="f">Cantidad <span class="req">*</span><input id="ed-cant" type="number" min="1" step="1" inputmode="numeric" value="${esc(E.cantidad)}"></label>
+      <label class="f">Fecha próxima <span class="req">*</span><input id="ed-fecha" type="date" value="${esc(E.fecha)}"></label>
+    </div>
+    <div id="ed-hint">${hintEd()}</div>
+    <label class="f">Lote (opcional)<input id="ed-lote" value="${esc(E.lote)}" placeholder="Ej. L2410B"></label>
+    <div id="ed-err" class="err"></div>
+    <button class="btn big pri" id="ed-guardar" type="button" ${E.guardando?"disabled":""}>${E.guardando?"Guardando…":"Guardar cambios"}</button>
+    <button class="btn big borrar ${E.borrar?"confirmar":""}" id="ed-borrar" type="button">${E.borrar?"Toca otra vez para eliminar":"Eliminar producto"}</button>`}
+$("ed-in").addEventListener("input",e=>{const E=S.ed;if(!E)return;const id=e.target.id;
+  if(id==="ed-prod"){E.producto=e.target.value;const dl=$("dl-ed-pres");if(dl)dl.innerHTML=presOpc(E.categoria,E.producto)}
+  if(id==="ed-pres")E.presentacion=e.target.value;if(id==="ed-cant")E.cantidad=e.target.value.replace(/\D/g,"");if(id==="ed-lote")E.lote=e.target.value;
+  if(id==="ed-fecha")E.fecha=e.target.value;
+  if(["ed-prod","ed-pres","ed-fecha"].includes(id)){const h=$("ed-hint");if(h)h.innerHTML=hintEd()}});
+$("ed-in").addEventListener("change",e=>{if(e.target.id==="ed-fecha"&&S.ed){S.ed.fecha=e.target.value;$("ed-hint").innerHTML=hintEd()}});
+$("ed-in").addEventListener("click",e=>{const E=S.ed;const t=e.target.closest("button");if(!E||!t)return;
+  if(t.dataset.edcat){E.categoria=t.dataset.edcat;E.borrar=false;pintarEditar()}
+  else if(t.dataset.ednuevacat){editarCat(-1,"ed")}
+  else if(t.id==="ed-foto"){FE.para="ed";opcionesFoto()}
+  else if(t.id==="ed-guardar"){guardarEdicion()}
+  else if(t.id==="ed-borrar"){if(!E.borrar){E.borrar=true;pintarEditar();setTimeout(()=>{if(S.ed===E&&E.borrar){E.borrar=false;pintarEditar()}},4000)}else borrarProducto()}});
+$("ed-x").onclick=()=>{S.ed=null;cerrar("p-edit")};
+$("ed-ok").onclick=()=>guardarEdicion();
+async function guardarEdicion(){const E=S.ed;if(!E||E.guardando)return;
+  E.producto=$("ed-prod").value;E.presentacion=$("ed-pres").value;E.cantidad=$("ed-cant").value;E.fecha=$("ed-fecha").value;E.lote=$("ed-lote").value;
+  let m="";if(!E.categoria)m="Elige la categoría.";else if(!E.producto.trim())m="Escribe el producto.";else if(!(Number(E.cantidad)>0))m="Escribe la cantidad.";else if(!E.fecha)m="Elige la fecha próxima.";
+  if(m){$("ed-err").textContent=m;return}
+  E.guardando=true;pintarEditar();
+  try{const d=await api("editarRegistro",{id:E.id,categoria:E.categoria,producto:E.producto.trim().toUpperCase(),presentacion:E.presentacion.trim().toUpperCase(),
+      cantidad:Number(E.cantidad),fecha:E.fecha,lote:E.lote.trim(),codigo:E.codigo,foto:E.fotoNueva||""});
+    cargar(d);S.ed=null;cerrar("p-edit");renderLista();toast("Cambios guardados")}
+  catch(err){E.guardando=false;pintarEditar();$("ed-err").textContent="No se pudo guardar: "+(err&&err.message||"revisa tu conexión")}}
+async function borrarProducto(){const E=S.ed;if(!E)return;$("ed-borrar").disabled=true;$("ed-borrar").textContent="Eliminando…";
+  try{const d=await api("eliminarRegistro",E.id);cargar(d);S.ed=null;cerrar("p-edit");renderLista();toast("Producto eliminado")}
+  catch(err){E.borrar=false;pintarEditar();$("ed-err").textContent="No se pudo eliminar: "+(err&&err.message||"revisa tu conexión")}}
 
 /* ---------- reporte en PDF ---------- */
 // Se arma en el mismo teléfono con jsPDF; no pasa por Apps Script.
@@ -516,7 +599,10 @@ async function crearPDF(){
     headStyles:{fillColor:[24,32,46],textColor:255,fontStyle:"bold",minCellHeight:8},alternateRowStyles:{fillColor:[247,248,251]},
     columnStyles:{0:{cellWidth:17},1:{cellWidth:"auto"},2:{cellWidth:24},3:{cellWidth:13,halign:"center"},4:{cellWidth:21},5:{cellWidth:19},6:{cellWidth:27,fontStyle:"bold"}},
     didParseCell:d=>{if(d.section==="body"&&d.column.index===6)d.cell.styles.textColor=color(lista[d.row.index])},
-    didDrawCell:d=>{if(d.section==="body"&&d.column.index===0){const f=fotos[d.row.index];if(f){const s=Math.min(d.cell.width,d.cell.height)-3;doc.addImage(f,"JPEG",d.cell.x+(d.cell.width-s)/2,d.cell.y+(d.cell.height-s)/2,s,s)}}}});
+    didDrawCell:d=>{if(d.section==="body"&&d.column.index===0){const f=fotos[d.row.index],s=Math.min(d.cell.width,d.cell.height)-3,x=d.cell.x+(d.cell.width-s)/2,y=d.cell.y+(d.cell.height-s)/2;
+      if(f)doc.addImage(f,"JPEG",x,y,s,s);
+      else{doc.setFillColor(233,237,245);doc.roundedRect(x,y,s,s,1.5,1.5,"F");doc.setFont("helvetica","bold");doc.setFontSize(13);doc.setTextColor(140,148,160);
+        doc.text((String(lista[d.row.index].producto||"?").trim()[0]||"?").toUpperCase(),x+s/2,y+s/2+1.6,{align:"center"})}}}});
   const np=doc.internal.getNumberOfPages();
   for(let i=1;i<=np;i++){doc.setPage(i);doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(140,148,160);
     doc.text(`Control de Fechas · ${S.ctx.responsable||""}`,M,doc.internal.pageSize.getHeight()-8);doc.text(`Página ${i} de ${np}`,W-M,doc.internal.pageSize.getHeight()-8,{align:"right"})}
@@ -544,7 +630,7 @@ function pintarCats(){
       <button class="asa" type="button" aria-label="Arrastrar para ordenar ${esc(c.nombre)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 8h14M5 12h14M5 16h14"/></svg></button>
     </div>`).join(""):`<div class="vacio"><b>Sin categorías</b>Toca AÑADIR para crear la primera.</div>`}
 const CF={i:-1,paraRegistro:false};
-function editarCat(i,paraRegistro){CF.i=i;CF.paraRegistro=!!paraRegistro;const c=i>=0?S.cats[i]:null;
+function editarCat(i,paraRegistro){CF.i=i;CF.paraRegistro=paraRegistro||false;const c=i>=0?S.cats[i]:null;
   $("catf-t").textContent=c?"Editar categoría":"Nueva categoría";$("catf-nom").value=c?c.nombre:"";$("catf-dias").value=c?c.dias:7;
   $("catf-err").textContent="";$("catf-del").hidden=!c;abrir("p-catf");setTimeout(()=>$("catf-nom").focus(),60)}
 async function guardarCats(lista,okMsg){
@@ -568,7 +654,8 @@ $("catf-ok").onclick=async()=>{
   if(await guardarCats(lista,CF.i<0?"Categoría añadida":"Categoría guardada")){
     if(viejo&&norm(S.catSel)===norm(viejo))S.catSel=nom;
     cerrar("p-catf");renderLista();
-    if(CF.paraRegistro&&S.reg){S.reg.categoria=nom;pintarRegistro()}}};
+    if(CF.paraRegistro==="ed"&&S.ed){S.ed.categoria=nom;pintarEditar()}
+    else if(CF.paraRegistro&&S.reg){S.reg.categoria=nom;pintarRegistro()}}};
 $("catf-del").onclick=async()=>{const c=S.cats[CF.i];if(!c)return;const n=cuenta(c.nombre,false);
   if(n){$("catf-err").textContent=`No se puede eliminar: tiene ${n} ${n===1?"producto":"productos"}. Primero cámbiale el nombre o déjala.`;return}
   const lista=S.cats.filter((x,i)=>i!==CF.i).map(x=>({nombre:x.nombre,dias:x.dias}));
@@ -666,7 +753,8 @@ function actualizarHint(){const h=$("r-hint");if(h)h.innerHTML=hintRetiro()}
 // Sugerencias: catálogo de la base (CCN y CDN) + lo que esta persona ya registró
 function sugProd(cat){const c=String(cat||"").trim().toUpperCase();const set=new Set([...(S.cat.productos&&S.cat.productos[c]||[])]);
   S.regs.forEach(r=>{if(norm(r.categoria)===norm(cat))set.add(r.producto)});return [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,"es"))}
-function opcPres(){const R=S.reg;const c=String(R.categoria||"").trim().toUpperCase(),p=String(R.producto||"").trim().toUpperCase();
+function opcPres(){return presOpc(S.reg.categoria,S.reg.producto)}
+function presOpc(cat,prod){const c=String(cat||"").trim().toUpperCase(),p=String(prod||"").trim().toUpperCase();
   const set=new Set(presDe(c,p));S.regs.forEach(r=>{if(String(r.producto).toUpperCase()===p&&r.presentacion)set.add(r.presentacion)});
   return [...set].map(x=>`<option value="${esc(x)}">`).join("")}
 function pintarRegistro(){
@@ -719,7 +807,7 @@ $("reg-in").addEventListener("click",async e=>{const R=S.reg;const t=e.target.cl
     if(v===NUEVO){R.nuevo=true;R.producto="";R.presentacion="";pintarRegistro();setTimeout(()=>$("r-nom")&&$("r-nom").focus(),50)}
     else if(v!=null&&(v!==R.producto||R.nuevo)){R.nuevo=false;R.producto=v;R.presentacion="";pintarRegistro()}}
   else if(t.id==="r-pres"){const v=await elegir(R.producto,[...presDe(R.categoria,R.producto)].sort((a,b)=>a.localeCompare(b,"es")),R.presentacion);if(v!=null){R.presentacion=v;pintarRegistro()}}
-  else if(t.id==="r-foto"){opcionesFoto()}
+  else if(t.id==="r-foto"){FE.para="reg";opcionesFoto()}
   else if(t.id==="r-guardar"){guardar()}});
 /* ---------- foto del producto: cámara o galería, con quitar fondo ---------- */
 // Quita el fondo liso que toca los bordes de la foto y deja el producto recortado sobre blanco.
@@ -847,7 +935,8 @@ function abrirEditorFoto(img,desdeCamara){
 function pintarFE(){$("fe-img").src=FE.usarSin&&FE.sinFondo?FE.sinFondo:FE.orig}
 $("fe-sw").onchange=e=>{FE.usarSin=e.target.checked;pintarFE()};
 $("fe-x").onclick=()=>cerrar("p-fedit");
-$("fe-ok").onclick=()=>{if(!S.reg)return cerrar("p-fedit");S.reg.fotoNueva=FE.usarSin&&FE.sinFondo?FE.sinFondo:FE.orig;cerrar("p-fedit");pintarRegistro()};
+$("fe-ok").onclick=()=>{if(FE.para==="ed"&&S.ed){S.ed.fotoNueva=FE.usarSin&&FE.sinFondo?FE.sinFondo:FE.orig;cerrar("p-fedit");pintarEditar();return}
+  if(!S.reg)return cerrar("p-fedit");S.reg.fotoNueva=FE.usarSin&&FE.sinFondo?FE.sinFondo:FE.orig;cerrar("p-fedit");pintarRegistro()};
 $("fe-otra").onclick=()=>{cerrar("p-fedit");$($("fe-otra").dataset.cam?"file-foto-cam":"file-foto").click()};
 function opcionesFoto(){abrir("p-fop");cargarRecortador().catch(()=>{})}
 $("fop-cam").onclick=()=>{cerrar("p-fop");$("file-foto-cam").click()};
@@ -891,7 +980,7 @@ async function refrescar(aviso){$("btn-act").disabled=true;
   catch(e){if(aviso)toast("No se pudo actualizar. Revisa tu conexión.");else $("lista").innerHTML=`<div class="vacio"><b>No se pudo cargar</b>${esc(e&&e.message||"Revisa tu conexión y recarga.")}</div>`}
   finally{$("btn-act").disabled=false}}
 $("btn-act").onclick=()=>refrescar(true);
-document.addEventListener("visibilitychange",()=>{if(!document.hidden&&$("p-reg").hidden&&$("p-cam").hidden)refrescar(false)});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&$("p-reg").hidden&&$("p-cam").hidden&&$("p-edit").hidden)refrescar(false)});
 refrescar(false).then(()=>{if(!S.ctx.responsable){pintarCtx();abrir("p-ctx")}});
 </script>
 </body>
