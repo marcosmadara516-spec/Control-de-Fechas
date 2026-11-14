@@ -196,7 +196,7 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
     <button class="chip" data-f="atendidos" aria-pressed="false">Atendidos</button>
   </div>
   <div id="lista" class="lista"><div class="cargando">Cargando…</div></div>
-  <p class="muted" style="text-align:center;font-size:.8rem;margin:20px 0 0">Control de Fechas · Versión 2</p>
+  <p class="muted" style="text-align:center;font-size:.8rem;margin:20px 0 0">Control de Fechas · Versión 3</p>
 </div>
 
 <!-- Menú lateral -->
@@ -214,6 +214,9 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
   <button class="caj-it" id="caj-edit" type="button">
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.4 11.6 12.4 2.6A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7c0 .6.2 1.1.6 1.4l9 9a2 2 0 0 0 2.8 0l7-7a2 2 0 0 0 0-2.8ZM6.5 8A1.5 1.5 0 1 1 6.5 5a1.5 1.5 0 0 1 0 3Z"/></svg>
     Añadir o editar categorías</button>
+  <button class="caj-it" id="caj-pdf" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>
+    Reporte en PDF</button>
   <button class="caj-it" id="caj-ajustes" type="button">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
     Cambiar mi nombre</button>
@@ -238,6 +241,23 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
     <button class="btn pri big" id="catf-ok" type="button">Guardar</button>
     <button class="btn big" id="catf-del" type="button" style="color:var(--red)">Eliminar categoría</button>
     <button class="link" id="catf-x" type="button" style="text-align:center">Cancelar</button>
+  </div>
+</div>
+
+<div class="hoja-op" id="p-rep" hidden role="dialog" aria-labelledby="rep-t">
+  <div class="hoja-in">
+    <b id="rep-t">Reporte en PDF</b>
+    <label class="f">Categoría<select id="rep-cat"></select></label>
+    <div class="f">Incluir</div>
+    <div class="seg-w" id="rep-est" role="group" aria-label="Qué productos incluir">
+      <button type="button" class="chip" data-est="pend" aria-pressed="true">Pendientes</button>
+      <button type="button" class="chip" data-est="aten" aria-pressed="false">Atendidos</button>
+      <button type="button" class="chip" data-est="todos" aria-pressed="false">Todos</button>
+    </div>
+    <div class="mini" id="rep-info"></div>
+    <button class="btn pri big" id="rep-desc" type="button">Descargar PDF</button>
+    <button class="btn big" id="rep-comp" type="button" hidden>Compartir (WhatsApp, correo…)</button>
+    <button class="link" id="rep-x" type="button" style="text-align:center">Cancelar</button>
   </div>
 </div>
 
@@ -324,7 +344,7 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
 /* ===== CONFIGURACIÓN: pega aquí la URL de tu Apps Script (termina en /exec) y la misma clave de Escaner.gs ===== */
-const API_URL = "https://script.google.com/macros/s/AKfycbylVVi7LLV82Dx8kx23paudSO7lfX764j-7GHctjp7RZsb5cy7wPMHcTURmxj5gNaad/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbzgRsxwqs9gIvbmqK9glgSdQbvql7VxpGtmOIMNWJ80F0y_s7fMblvG0NXMl_yg-Rka/exec";
 const CLAVE   = "CCN";
 /* =============================================================================================================== */
 async function api(fn,...a){
@@ -448,6 +468,74 @@ $("caj-edit").onclick=()=>{cerrarCajon();pintarCats();abrir("p-cats")};
 const cambiarNombre=()=>{cerrarCajon();pintarCtx();abrir("p-ctx");$("ctx-nombre").focus()};
 $("caj-nombre").onclick=cambiarNombre;$("caj-ajustes").onclick=cambiarNombre;
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("cajon").classList.contains("abierto"))cerrarCajon()});
+
+/* ---------- reporte en PDF ---------- */
+// Se arma en el mismo teléfono con jsPDF; no pasa por Apps Script.
+const REP={est:"pend",ocupado:false};
+function cargarScript(src){return new Promise((ok,mal)=>{const s=document.createElement("script");s.src=src;s.onload=ok;s.onerror=()=>mal(new Error("No se pudo cargar "+src));document.head.appendChild(s)})}
+let LIBPDF=null;
+function cargarPDF(){if(!LIBPDF)LIBPDF=(async()=>{
+    if(!(window.jspdf&&window.jspdf.jsPDF))await cargarScript("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js");
+    await cargarScript("https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js");
+    return window.jspdf.jsPDF})().catch(e=>{LIBPDF=null;throw e});return LIBPDF}
+function regsReporte(){const n=norm(REP.cat||"");
+  return S.regs.filter(r=>(!REP.cat||norm(r.categoria)===n)&&(REP.est==="todos"||(REP.est==="aten"?r.estado==="atendido":r.estado!=="atendido")))
+    .sort((a,b)=>(a.estado==="atendido")-(b.estado==="atendido")||fechaRetiro(a).localeCompare(fechaRetiro(b))||(a.fecha||"").localeCompare(b.fecha||""))}
+function infoRep(){const n=regsReporte().length;$("rep-info").textContent=n?`${n} ${n===1?"producto":"productos"} en el reporte.`:"No hay productos con esos filtros.";$("rep-desc").disabled=$("rep-comp").disabled=!n||REP.ocupado}
+function abrirReporte(){REP.cat=S.catSel||"";
+  $("rep-cat").innerHTML=`<option value="">Todas las categorías</option>`+S.cats.map(c=>`<option value="${esc(c.nombre)}">${esc(c.nombre)}</option>`).join("");$("rep-cat").value=REP.cat;
+  document.querySelectorAll("#rep-est .chip").forEach(c=>c.setAttribute("aria-pressed",c.dataset.est===REP.est));
+  let puede=false;try{puede=!!(navigator.canShare&&navigator.canShare({files:[new File(["x"],"a.pdf",{type:"application/pdf"})]}))}catch(e){}
+  $("rep-comp").hidden=!puede;infoRep();abrir("p-rep");cargarPDF().catch(()=>{})}
+// Foto a JPEG pequeño (jsPDF no lee todos los formatos)
+const FOTOPDF=new Map();
+function fotoPDF(src){if(!src)return Promise.resolve(null);if(FOTOPDF.has(src))return FOTOPDF.get(src);
+  const p=new Promise(ok=>{const im=new Image();im.crossOrigin="anonymous";im.onload=()=>{try{const L=140,c=document.createElement("canvas");c.width=c.height=L;const g=c.getContext("2d");
+      g.fillStyle="#fff";g.fillRect(0,0,L,L);const k=Math.min(L/im.naturalWidth,L/im.naturalHeight);const w=im.naturalWidth*k,h=im.naturalHeight*k;g.drawImage(im,(L-w)/2,(L-h)/2,w,h);ok(c.toDataURL("image/jpeg",.82))}catch(e){ok(null)}};
+    im.onerror=()=>ok(null);im.src=src});FOTOPDF.set(src,p);return p}
+async function crearPDF(){
+  const jsPDF=await cargarPDF();const lista=regsReporte();
+  const fotos=await Promise.all(lista.map(r=>fotoPDF(fotoDe(r))));
+  const doc=new jsPDF({unit:"mm",format:"a4"});const W=doc.internal.pageSize.getWidth(),M=12;
+  const ahora=new Date(),fh=`${String(ahora.getDate()).padStart(2,"0")}/${String(ahora.getMonth()+1).padStart(2,"0")}/${ahora.getFullYear()} ${String(ahora.getHours()).padStart(2,"0")}:${String(ahora.getMinutes()).padStart(2,"0")}`;
+  doc.setFont("helvetica","bold");doc.setFontSize(18);doc.setTextColor(24,32,46);doc.text("CONTROL DE FECHAS",M,18);
+  doc.setFont("helvetica","normal");doc.setFontSize(11);doc.setTextColor(91,101,120);doc.text("Reporte de productos",M,24);
+  doc.setFontSize(9.5);
+  doc.text(`Responsable: ${S.ctx.responsable||"-"}   ·   Categoría: ${REP.cat||"Todas"}   ·   Incluye: ${{pend:"Pendientes",aten:"Atendidos",todos:"Todos"}[REP.est]}   ·   Generado: ${fh}`,M,30,{maxWidth:W-2*M});
+  // resumen
+  const pend=lista.filter(r=>r.estado!=="atendido");
+  const caj=[["Para retirar ya",pend.filter(r=>diasRet(r)<=0).length,[196,43,43],[251,229,227]],["Esta semana",pend.filter(r=>{const n=diasRet(r);return n>0&&n<=7}).length,[169,99,0],[253,240,217]],
+             ["Más adelante",pend.filter(r=>diasRet(r)>7).length,[31,122,69],[225,243,232]],["Atendidos",lista.length-pend.length,[91,101,120],[233,237,245]]];
+  const bw=(W-2*M-9)/4;caj.forEach((c,i)=>{const x=M+i*(bw+3);doc.setFillColor(...c[3]);doc.roundedRect(x,35,bw,15,2,2,"F");
+    doc.setTextColor(...c[2]);doc.setFont("helvetica","bold");doc.setFontSize(15);doc.text(String(c[1]),x+4,43.5);doc.setFont("helvetica","normal");doc.setFontSize(8.5);doc.text(c[0],x+4,47.8)});
+  const estado=r=>{if(r.estado==="atendido")return "Atendido";const n=diasRet(r);return n<0?`Atrasado ${-n} d`:n===0?"Retirar hoy":n===1?"Retirar mañana":`En ${n} días`};
+  const color=r=>{if(r.estado==="atendido")return [91,101,120];const k=nivel(diasRet(r));return k==="vencido"?[196,43,43]:k==="critico"?[169,99,0]:k==="pronto"?[125,108,0]:[31,122,69]};
+  const filas=lista.map(r=>["",nombreDe(r.producto,r.presentacion)+(r.lote?`\nLote ${r.lote}`:"")+(codigoDe(r)?`\n${codigoDe(r)}`:""),r.categoria,String(r.cantidad),fCorta(r.fecha)+"/"+r.fecha.slice(0,4),fCorta(fechaRetiro(r)),estado(r)]);
+  doc.autoTable({startY:55,margin:{left:M,right:M,bottom:16},head:[["Foto","Producto","Categoría","Cant.","Vence","Retirar el","Estado"]],body:filas,
+    styles:{font:"helvetica",fontSize:9,cellPadding:2,valign:"middle",textColor:[24,32,46],lineColor:[225,229,238],lineWidth:.2,minCellHeight:16},
+    headStyles:{fillColor:[24,32,46],textColor:255,fontStyle:"bold",minCellHeight:8},alternateRowStyles:{fillColor:[247,248,251]},
+    columnStyles:{0:{cellWidth:17},1:{cellWidth:"auto"},2:{cellWidth:24},3:{cellWidth:13,halign:"center"},4:{cellWidth:21},5:{cellWidth:19},6:{cellWidth:27,fontStyle:"bold"}},
+    didParseCell:d=>{if(d.section==="body"&&d.column.index===6)d.cell.styles.textColor=color(lista[d.row.index])},
+    didDrawCell:d=>{if(d.section==="body"&&d.column.index===0){const f=fotos[d.row.index];if(f){const s=Math.min(d.cell.width,d.cell.height)-3;doc.addImage(f,"JPEG",d.cell.x+(d.cell.width-s)/2,d.cell.y+(d.cell.height-s)/2,s,s)}}}});
+  const np=doc.internal.getNumberOfPages();
+  for(let i=1;i<=np;i++){doc.setPage(i);doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(140,148,160);
+    doc.text(`Control de Fechas · ${S.ctx.responsable||""}`,M,doc.internal.pageSize.getHeight()-8);doc.text(`Página ${i} de ${np}`,W-M,doc.internal.pageSize.getHeight()-8,{align:"right"})}
+  const nombre=`Reporte_${(REP.cat||"Todas").replace(/[^A-Za-z0-9ÁÉÍÓÚáéíóúÑñ]+/g,"_")}_${iso(hoy())}.pdf`;
+  return {blob:doc.output("blob"),nombre}}
+async function hacerReporte(compartir){if(REP.ocupado)return;REP.ocupado=true;infoRep();const b=compartir?$("rep-comp"):$("rep-desc"),txt=b.textContent;b.textContent="Preparando el PDF…";
+  try{const {blob,nombre}=await crearPDF();
+    if(compartir){const f=new File([blob],nombre,{type:"application/pdf"});try{await navigator.share({files:[f],title:"Reporte Control de Fechas"})}catch(e){if(e&&e.name!=="AbortError")throw e}}
+    else{const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download=nombre;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);toast("PDF descargado")}
+    cerrar("p-rep")}
+  catch(e){toast("No se pudo crear el PDF. Revisa tu conexión.");console.warn(e)}
+  finally{REP.ocupado=false;b.textContent=txt;infoRep()}}
+$("caj-pdf").onclick=()=>{cerrarCajon();abrirReporte()};
+$("rep-x").onclick=()=>cerrar("p-rep");
+$("p-rep").addEventListener("click",e=>{if(e.target.id==="p-rep")cerrar("p-rep")});
+$("rep-cat").onchange=e=>{REP.cat=e.target.value;infoRep()};
+$("rep-est").onclick=e=>{const c=e.target.closest("[data-est]");if(!c)return;REP.est=c.dataset.est;document.querySelectorAll("#rep-est .chip").forEach(x=>x.setAttribute("aria-pressed",x===c));infoRep()};
+$("rep-desc").onclick=()=>hacerReporte(false);
+$("rep-comp").onclick=()=>hacerReporte(true);
 
 /* ---------- ajustes de categoría ---------- */
 function pintarCats(){
